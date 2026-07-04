@@ -1,4 +1,5 @@
 import requests
+import feedparser
 from bs4 import BeautifulSoup
 from datetime import datetime
 from backend.app.db import RawDocument
@@ -9,21 +10,15 @@ RSS_FEEDS = [
 ]
 
 
-def fetch_rss_feed(feed_url):
-    resp = requests.get(feed_url, timeout=10)
-    resp.raise_for_status()
-    return resp.text
-
-
-def parse_rss_items(rss_xml):
-    soup = BeautifulSoup(rss_xml, 'xml')
-    items = []
-    for item in soup.find_all('item'):
-        title = item.title.string if item.title else ''
-        link = item.link.string if item.link else ''
-        pub_date = item.pubDate.string if item.pubDate else None
-        items.append({'title': title, 'link': link, 'pub_date': pub_date})
-    return items
+def fetch_rss_feed_entries(feed_url):
+    parsed = feedparser.parse(feed_url)
+    entries = []
+    for e in parsed.entries:
+        title = e.get('title', '')
+        link = e.get('link', '')
+        pub_date = e.get('published', None) or e.get('updated', None)
+        entries.append({'title': title, 'link': link, 'pub_date': pub_date})
+    return entries
 
 
 def fetch_article_text(url):
@@ -31,7 +26,6 @@ def fetch_article_text(url):
         resp = requests.get(url, timeout=10, headers={'User-Agent': 'SentinelRiskBot/1.0'})
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
-        # naive extraction: join paragraph texts
         paragraphs = [p.get_text(separator=' ', strip=True) for p in soup.find_all('p')]
         text = '\n\n'.join(paragraphs)
         return text
@@ -42,8 +36,7 @@ def fetch_article_text(url):
 def harvest_rss(session, feed_url_list=RSS_FEEDS):
     docs = []
     for feed in feed_url_list:
-        xml = fetch_rss_feed(feed)
-        items = parse_rss_items(xml)
+        items = fetch_rss_feed_entries(feed)
         for it in items[:10]:
             content = fetch_article_text(it['link'])
             raw = RawDocument(source=feed, url=it['link'], title=it['title'], content=content)
